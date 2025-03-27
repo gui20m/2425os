@@ -16,6 +16,7 @@
 typedef struct {
     char type;
     int id;
+    int nr_processes;
     char keyword[32];
     char title[200];
     char authors[200];
@@ -39,5 +40,7 @@ char* remove_document(int id, Document docs[], int *total);
 int is_valid_document(char* doc_folder, char* rel_path);
 
 int count_line_w_keyword(char* path, char* keyword);
+
+char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route);
 
 #endif

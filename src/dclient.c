@@ -131,6 +131,31 @@ int main(int argc, char* argv[]) {
         close(client_fifo);
     }
 
+    if (strcmp(argv[1], "-s") == 0 && argc == 3) {
+        Task task;
+        task.type='s';
+        strncpy(task.keyword, argv[2], sizeof(task.keyword)-1);
+        strncpy(task.client_fifo, fifo_name, sizeof(task.client_fifo) - 1);
+
+
+        write(server_fifo, &task, sizeof(Task));
+        close(server_fifo);
+
+        int client_fifo = open(fifo_name, O_RDONLY);
+        if (client_fifo == -1) {
+            perror("Error opening client FIFO");
+            return 1;
+        }
+
+        char response[128];
+        int read_bytes = read(client_fifo, response, sizeof(response));
+        if (read_bytes > 0) {
+            write(STDOUT_FILENO, response, read_bytes);
+        }
+
+        close(client_fifo);
+    }
+
     if (strcmp(argv[1], "-f") == 0 && argc == 2) {
         Task task;
         task.type = 'f';

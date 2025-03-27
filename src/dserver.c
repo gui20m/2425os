@@ -112,6 +112,20 @@ int main(int argc, char* argv[]) {
                 }
             }
 
+            if (task.type=='s'){
+                if (!task.nr_processes){
+                    char *output = match_pattern(documents, &total_documents, task.keyword, argv[1]);
+                    printf("[server-log] looking for documents with keyword \"%s\"\n", task.keyword);
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        char response[128];
+                        snprintf(response, sizeof(response), "%s\n", output);
+                        write(client_fifo, response, strlen(response));
+                        close(client_fifo);
+                    }
+                }
+            }
+
             if (task.type == 'f') {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
