@@ -16,6 +16,7 @@
 typedef struct {
     char type;
     int id;
+    char keyword[32];
     char title[200];
     char authors[200];
     int year;
@@ -28,12 +29,15 @@ typedef struct {
     char authors[200];
     int year;
     char path[64];
+    int valid;
 } Document;
 
 void createFIFO(char* fifo_name);
 
-int remove_document(int id, Document documents[], int *total_documents);
+char* remove_document(int id, Document docs[], int *total);
 
 int is_valid_document(char* doc_folder, char* rel_path);
+
+int count_line_w_keyword(char* path, char* keyword);
 
 #endif

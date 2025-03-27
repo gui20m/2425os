@@ -78,12 +78,11 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    if (task.id > 0 && task.id <= total_documents) {
-                        printf("[server-log] deleting document%d\n", task.id);
-                        
-                        remove_document(task.id, documents, &total_documents);
+                    char* deleted_path = remove_document(task.id, documents, &total_documents);
+                    
+                    if (deleted_path) {
+                        printf("[server-log] deleting document%d (%s)\n", task.id, deleted_path);
                         snprintf(response, sizeof(response), "Index entry %d deleted\n", task.id);
-
                     } else {
                         snprintf(response, sizeof(response), "Error: Document %d not found\n", task.id);
                     }
@@ -91,6 +90,28 @@ int main(int argc, char* argv[]) {
                     close(client_fifo);
                 }
             }
+
+            if (task.type == 'l') {
+                int client_fifo = open(task.client_fifo, O_WRONLY);
+                if (client_fifo != -1) {
+                    char response[128];
+                    if (task.id > 0 && task.id <= total_documents) {
+                        Document doc = documents[task.id-1];
+                        char full_path[256];
+                        snprintf(full_path, sizeof(full_path), "%s/%s", argv[1], doc.path);
+                        
+                        int total_lines = count_line_w_keyword(full_path, task.keyword);
+                        printf("[server-log] couting keyword \"%s\" in document%d\n", task.keyword, task.id);
+                        snprintf(response, sizeof(response), "%d\n", total_lines);
+                    } else {
+                        snprintf(response, sizeof(response), "Error: Document %d not found\n", task.id);
+                    }
+                    
+                    write(client_fifo, response, strlen(response));
+                    close(client_fifo);
+                }
+            }
+
             if (task.type == 'f') {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
