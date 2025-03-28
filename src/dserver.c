@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
                 strncpy(documents[total_documents].authors, task.authors, sizeof(documents[total_documents].authors));
                 documents[total_documents].year = task.year;
                 strncpy(documents[total_documents].path, task.path, sizeof(documents[total_documents].path));
+                documents[total_documents].valid=1;
                 total_documents++;
                 printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", total_documents, task.title, task.authors, task.year, task.path);
 
@@ -58,7 +59,7 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[512];
-                    if (task.id > 0 && task.id <= total_documents) {
+                    if (task.id > 0 && task.id <= total_documents && documents[task.id-1].valid) {
                         printf("[server-log] consulting document%d\n", task.id);
                         Document doc = documents[task.id - 1];
                         snprintf(response, sizeof(response),
