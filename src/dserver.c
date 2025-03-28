@@ -135,6 +135,8 @@ int main(int argc, char* argv[]) {
                     write(client_fifo, response, strlen(response));
                     close(client_fifo);
                 }
+
+                printf("[server-log] shutdowning server..\n");
             
                 close(server_fifo);
                 unlink(SERVER);
