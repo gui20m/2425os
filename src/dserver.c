@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    if (task.id > 0 && task.id <= total_documents) {
+                    if (task.id > 0 && task.id <= total_documents && documents[task.id-1].valid) {
                         Document doc = documents[task.id-1];
                         char full_path[256];
                         snprintf(full_path, sizeof(full_path), "%s/%s", argv[1], doc.path);

@@ -73,6 +73,7 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
 
   for (int i = 0; i < *total_documents; i++) {
       Document doc = documents[i];
+      if (!doc.valid) break;
       char full_path[1024];
       snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
       
