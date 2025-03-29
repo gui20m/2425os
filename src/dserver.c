@@ -152,6 +152,7 @@ int main(int argc, char* argv[]) {
                             
                             char *partial_output = match_pattern(documents + start, &count, task.keyword, argv[1]);
                             
+                            write(pipes[i][1], &start, sizeof(int));  // Envia o offset
                             int output_len = strlen(partial_output);
                             write(pipes[i][1], &output_len, sizeof(int));
                             
@@ -166,32 +167,42 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     
-                    char final_output[4096];
-                    final_output[0] = '[';
-                    final_output[1] = '\0';
+                    char final_output[4096] = "[";
                     int first_result = 1;
                     
                     for (int i = 0; i < task.nr_processes; i++) {
-                        int output_len;
+                        int start, output_len;
+                        read(pipes[i][0], &start, sizeof(int));
                         read(pipes[i][0], &output_len, sizeof(int));
                         
                         if (output_len > 0) {
                             char buffer[1024];
                             read(pipes[i][0], buffer, output_len + 1);
                             
-                            if (!first_result) {
-                                strcat(final_output, " ");
+                            char *token = strtok(buffer, ",");
+                            while (token != NULL) {
+                                if (!first_result) {
+                                    strcat(final_output, ",");
+                                }
+                                
+                                int relative_id = atoi(token);
+                                int absolute_id = start + relative_id;
+                                
+                                char id_str[10];
+                                snprintf(id_str, sizeof(id_str), "%d", absolute_id);
+                                strcat(final_output, id_str);
+                                
+                                first_result = 0;
+                                token = strtok(NULL, ",");
                             }
-                            strcat(final_output, buffer);
-                            first_result = 0;
                         }
                         close(pipes[i][0]);
                         waitpid(pids[i], NULL, 0);
                     }
                     
+                    strcat(final_output, "]\n");
                     int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
-                        strcat(final_output, "]\n");
                         write(client_fifo, final_output, strlen(final_output) + 1);
                         close(client_fifo);
                     }
