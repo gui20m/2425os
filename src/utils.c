@@ -147,6 +147,8 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
     }
 
     *loaded = (file_total > max_size) ? max_size : file_total;
+    if (file_total > *loaded) printf("[server-log] cache was truncated for the first %d entries..\n", *loaded);
+    if (max_size>*loaded) printf("[server-log] loaded %d from disk..\n", file_total);
 
     for (int i = 0; i < *loaded; i++) {
         if (read(fd, &docs[i], sizeof(Document)) != sizeof(Document)) {
