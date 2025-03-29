@@ -120,8 +120,69 @@ int main(int argc, char* argv[]) {
                     int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
                         char response[128];
-                        snprintf(response, sizeof(response), "%s\n", output);
+                        snprintf(response, sizeof(response), "[%s", output);
+                        strcat(response, "]\n");
                         write(client_fifo, response, strlen(response));
+                        close(client_fifo);
+                    }
+                }
+                if (task.nr_processes) {
+                    int pipes[task.nr_processes][2];
+                    pid_t pids[task.nr_processes];
+                    
+                    for (int i = 0; i < task.nr_processes; i++) {
+                        pipe(pipes[i]);
+                        
+                        if ((pids[i] = fork()) == 0) {
+                            close(pipes[i][0]);
+                            int docs_per_process = total_documents / task.nr_processes;
+                            int start = i * docs_per_process;
+                            int end = (i == task.nr_processes - 1) ? total_documents : start + docs_per_process;
+                            int count = end - start;
+                            
+                            char *partial_output = match_pattern(documents + start, &count, task.keyword, argv[1]);
+                            
+                            int output_len = strlen(partial_output);
+                            write(pipes[i][1], &output_len, sizeof(int));
+                            
+                            if (output_len > 0) {
+                                write(pipes[i][1], partial_output, output_len + 1);
+                            }
+                            close(pipes[i][1]);
+                            exit(0);
+                        }
+                        else {
+                            close(pipes[i][1]);
+                        }
+                    }
+                    
+                    char final_output[4096];
+                    final_output[0] = '[';
+                    final_output[1] = '\0';
+                    int first_result = 1;
+                    
+                    for (int i = 0; i < task.nr_processes; i++) {
+                        int output_len;
+                        read(pipes[i][0], &output_len, sizeof(int));
+                        
+                        if (output_len > 0) {
+                            char buffer[1024];
+                            read(pipes[i][0], buffer, output_len + 1);
+                            
+                            if (!first_result) {
+                                strcat(final_output, " ");
+                            }
+                            strcat(final_output, buffer);
+                            first_result = 0;
+                        }
+                        close(pipes[i][0]);
+                        waitpid(pids[i], NULL, 0);
+                    }
+                    
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        strcat(final_output, "]\n");
+                        write(client_fifo, final_output, strlen(final_output) + 1);
                         close(client_fifo);
                     }
                 }

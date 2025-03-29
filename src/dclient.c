@@ -131,9 +131,11 @@ int main(int argc, char* argv[]) {
         close(client_fifo);
     }
 
-    if (strcmp(argv[1], "-s") == 0 && argc == 3) {
+    if (strcmp(argv[1], "-s") == 0 && (argc == 3 || argc==4)) {
         Task task;
         task.type='s';
+        if (argc==4) task.nr_processes = atoi(argv[3]);
+        else task.nr_processes=0;
         strncpy(task.keyword, argv[2], sizeof(task.keyword)-1);
         strncpy(task.client_fifo, fifo_name, sizeof(task.client_fifo) - 1);
 

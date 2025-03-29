@@ -67,8 +67,7 @@ int count_line_w_keyword(char* path, char* keyword) {
 
 char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route) {
   static char response[4096];
-  response[0] = '[';
-  response[1] = '\0';
+  response[0] = '\0';
   int first_match = 1;
 
   for (int i = 0; i < *total_documents; i++) {
@@ -114,6 +113,5 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
           first_match = 0;
       }
   }
-  strcat(response, "]");
   return response;
 }
