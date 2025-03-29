@@ -11,13 +11,13 @@ A client-server system for indexing/managing text documents with metadata. Inclu
 ## Installation
 **Compiling**
 ```console
-> make clean && make
+make clean && make
 ```
 **Automated Testing files + Running Server**
 ```console
-> sh script.sh
+sh script.sh
 ```
 **Client task**
 ```
-> ./bin/dclient -<option> <args1,...>
+./bin/dclient -<option> <args1,...>
 ```
