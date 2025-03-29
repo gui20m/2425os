@@ -15,7 +15,11 @@ make clean && make
 ```
 **Automated Testing files + Running Server**
 ```console
-sh script.sh
+sh setup.sh
+```
+**Automated Testing Commands**
+```
+sh commands.sh
 ```
 **Client task**
 ```
