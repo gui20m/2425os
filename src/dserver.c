@@ -23,6 +23,7 @@ int main(int argc, char* argv[]) {
     if (load_metadata(META_FILE, documents, cache_size, &total_documents) == 0) {
         cache_size = total_documents;
     }
+    if (total_documents<=cache_size) printf("[server-log] loaded %d from disk..\n", total_documents);
 
     createFIFO(SERVER);
 

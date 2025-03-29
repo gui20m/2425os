@@ -11,7 +11,7 @@
 #define UTILS_H
 
 #define SERVER "tmp/server_fifo"
-#define META_FILE "tmp/meta.dat"
+#define META_FILE "tmp/meta.bin"
 
 
 typedef struct {
