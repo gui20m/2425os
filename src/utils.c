@@ -115,3 +115,46 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
   }
   return response;
 }
+
+void save_metadata(const char* filename, Document docs[], int total) {
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd == -1) {
+        perror("Error opening metadata file");
+        return;
+    }
+
+    if (write(fd, &total, sizeof(int)) == -1) {
+        perror("Error writing total");
+    }
+
+    for (int i = 0; i < total; i++) {
+        if (write(fd, &docs[i], sizeof(Document)) == -1) {
+            perror("Error writing document");
+        }
+    }
+
+    close(fd);
+}
+
+int load_metadata(const char* filename, Document docs[], int max_size, int *loaded) {
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) return -1;
+
+    int file_total;
+    if (read(fd, &file_total, sizeof(int)) != sizeof(int)) {
+        close(fd);
+        return -1;
+    }
+
+    *loaded = (file_total > max_size) ? max_size : file_total;
+
+    for (int i = 0; i < *loaded; i++) {
+        if (read(fd, &docs[i], sizeof(Document)) != sizeof(Document)) {
+            close(fd);
+            return -1;
+        }
+    }
+
+    close(fd);
+    return 0;
+}

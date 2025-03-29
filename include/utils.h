@@ -10,8 +10,9 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#define CLIENT "tmp/client_fifo"
 #define SERVER "tmp/server_fifo"
+#define META_FILE "tmp/meta.dat"
+
 
 typedef struct {
     char type;
@@ -42,5 +43,9 @@ int is_valid_document(char* doc_folder, char* rel_path);
 int count_line_w_keyword(char* path, char* keyword);
 
 char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route);
+
+void save_metadata(const char* filename, Document docs[], int total);
+
+int load_metadata(const char* filename, Document docs[], int max_size, int *loaded);
 
 #endif
