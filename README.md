@@ -18,10 +18,10 @@ make clean && make
 sh setup.sh
 ```
 **Automated Testing Commands**
-```
+```console
 sh commands.sh
 ```
 **Client task**
-```
+```css
 ./bin/dclient -<option> <[args1],...>
 ```
