@@ -9,10 +9,11 @@ A client-server system for indexing/managing text documents with metadata. Inclu
 - Bash shell
 
 ## Installation
+Setup files
 ```console
 make clean && make
 ```
-
+Testing files
 ```console
 sh script.sh
 ```
