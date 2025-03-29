@@ -19,5 +19,5 @@ sh script.sh
 ```
 **Client task**
 ```
-./bin/dclient -<option> <args1,...>
+./bin/dclient -<option> <[args1],...>
 ```
