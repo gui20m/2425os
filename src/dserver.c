@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
         Task task;
         int read_bytes = read(server_fifo, &task, sizeof(Task));
         if (read_bytes > 0) {
-            if (task.type == 'a' && total_documents>cache_size-1) {
+            if (task.type == 'a' && total_documents>atoi(argv[2])-1) {
                 printf("[server-log] cache is full, cant index more files\n");
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
