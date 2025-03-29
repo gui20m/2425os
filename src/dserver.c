@@ -30,12 +30,21 @@ int main(int argc, char* argv[]) {
         Task task;
         int read_bytes = read(server_fifo, &task, sizeof(Task));
         if (read_bytes > 0) {
+            if (task.type == 'a' && total_documents>atoi(argv[2])-1) {
+                printf("[server-log] cache is full, cant index more files\n");
+                int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        write(client_fifo, "Error: Cache full\n", 19);
+                        close(client_fifo);
+                    }
+                    continue;
+            }
             if (task.type == 'a') {
                 if (!is_valid_document(argv[1], task.path)) {
-                    int client_fd = open(task.client_fifo, O_WRONLY);
-                    if (client_fd != -1) {
-                        write(client_fd, "Error: Invalid document\n", 24);
-                        close(client_fd);
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        write(client_fifo, "Error: Invalid document\n", 24);
+                        close(client_fifo);
                     }
                     continue;
                 }
@@ -54,14 +63,15 @@ int main(int argc, char* argv[]) {
                     write(client_fifo, response, strlen(response));
                     close(client_fifo);
                 }
-            } 
+            }
+
             if (task.type == 'c') {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[512];
                     if (task.id > 0 && task.id <= total_documents && documents[task.id-1].valid) {
-                        printf("[server-log] consulting document%d\n", task.id);
                         Document doc = documents[task.id - 1];
+                        printf("[server-log] consulting document%d\n", task.id);
                         snprintf(response, sizeof(response),
                             "Title: %s\n"
                             "Authors: %s\n"
@@ -79,7 +89,7 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    char* deleted_path = remove_document(task.id, documents, &total_documents);
+                    char* deleted_path = documents[task.id-1].valid ? remove_document(task.id, documents, &total_documents) : NULL;
                     
                     if (deleted_path) {
                         printf("[server-log] deleting document%d (%s)\n", task.id, deleted_path);
