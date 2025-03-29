@@ -36,7 +36,7 @@ typedef struct {
 
 void createFIFO(char* fifo_name);
 
-char* remove_document(int id, Document docs[], int *total);
+char* remove_document(int id, Document docs[], int *total, int available_indexs[]);
 
 int is_valid_document(char* doc_folder, char* rel_path);
 
@@ -47,5 +47,7 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
 void save_metadata(const char* filename, Document docs[], int total);
 
 int load_metadata(const char* filename, Document docs[], int max_size, int *loaded);
+
+int try_insert(Task task, Document documents[], int available_indexs[], int cache_size);
 
 #endif

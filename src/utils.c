@@ -4,7 +4,7 @@ void createFIFO(char* fifo_name) {
     mkfifo(fifo_name, 0666);
 }
 
-char* remove_document(int id, Document docs[], int *total) {
+char* remove_document(int id, Document docs[], int *total, int available_indexs[]) {
   static char path[256];
   if (id < 1 || id > *total) return NULL;
   
@@ -12,6 +12,7 @@ char* remove_document(int id, Document docs[], int *total) {
   
   memset(&docs[id-1], 0, sizeof(Document));
   docs[id-1].valid = 0;
+  available_indexs[id-1] = 1;
   
   return path;
 }
@@ -157,5 +158,22 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
     }
 
     close(fd);
+    return 0;
+}
+
+int try_insert(Task task, Document documents[], int available_indexs[], int cache_size) {
+    for (int i = 0; i < cache_size; i++) {
+        if (available_indexs[i] == 1) {
+            strncpy(documents[i].title, task.title, sizeof(documents[i].title));
+            strncpy(documents[i].authors, task.authors, sizeof(documents[i].authors));
+            documents[i].year = task.year;
+            strncpy(documents[i].path, task.path, sizeof(documents[i].path));
+            documents[i].valid = 1;
+            
+            available_indexs[i] = 0;
+            
+            return i+1; 
+        }
+    }
     return 0;
 }

@@ -25,6 +25,9 @@ int main(int argc, char* argv[]) {
     }
     if (total_documents<=cache_size) printf("[server-log] loaded %d from disk..\n", total_documents);
 
+    int available_indexs[cache_size];
+    for (int i=0; i<cache_size; i++) available_indexs[i] =0;
+
     createFIFO(SERVER);
 
     int server_fifo = open(SERVER, O_RDONLY);
@@ -38,13 +41,25 @@ int main(int argc, char* argv[]) {
         int read_bytes = read(server_fifo, &task, sizeof(Task));
         if (read_bytes > 0) {
             if (task.type == 'a' && total_documents>atoi(argv[2])-1) {
-                printf("[server-log] cache is full, cant index more files\n");
-                int client_fifo = open(task.client_fifo, O_WRONLY);
+                int try_id;
+                if ((try_id = try_insert(task, documents, available_indexs, cache_size))!=0) {
+                    printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", try_id, task.title, task.authors, task.year, task.path);
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
-                        write(client_fifo, "Error: Cache full\n", 19);
+                        char response[128];
+                        snprintf(response, sizeof(response), "Document %d indexed\n", try_id);
+                        write(client_fifo, response, sizeof(response));
                         close(client_fifo);
                     }
                     continue;
+                }
+                printf("[server-log] cache is full, cant index more files\n");
+                int client_fifo = open(task.client_fifo, O_WRONLY);
+                if (client_fifo != -1) {
+                    write(client_fifo, "Error: Cache full\n", 19);
+                    close(client_fifo);
+                }
+                continue;
             }
             if (task.type == 'a') {
                 if (!is_valid_document(argv[1], task.path)) {
@@ -96,7 +111,7 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    char* deleted_path = documents[task.id-1].valid ? remove_document(task.id, documents, &total_documents) : NULL;
+                    char* deleted_path = documents[task.id-1].valid ? remove_document(task.id, documents, &total_documents, available_indexs) : NULL;
                     
                     if (deleted_path) {
                         printf("[server-log] deleting document%d (%s)\n", task.id, deleted_path);
