@@ -162,18 +162,59 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
 }
 
 int try_insert(Task task, Document documents[], int available_indexs[], int cache_size) {
-    for (int i = 0; i < cache_size; i++) {
-        if (available_indexs[i] == 1) {
-            strncpy(documents[i].title, task.title, sizeof(documents[i].title));
-            strncpy(documents[i].authors, task.authors, sizeof(documents[i].authors));
-            documents[i].year = task.year;
-            strncpy(documents[i].path, task.path, sizeof(documents[i].path));
-            documents[i].valid = 1;
+    int num_processes = 10;
+    int pipe_fds[num_processes][2];
+    pid_t pids[num_processes];
+    int chunk_size = cache_size / num_processes;
+
+    for (int i = 0; i < num_processes; i++) {
+        pipe(pipe_fds[i]);
+
+        if ((pids[i]=fork())== 0) {
+            close(pipe_fds[i][0]);
             
-            available_indexs[i] = 0;
-            
-            return i+1; 
+            int start = i * chunk_size;
+            int end = (i == num_processes-1) ? cache_size : start + chunk_size;
+            int found_index = -1;
+
+            for (int j = start; j < end; j++) {
+                if (available_indexs[j] == 1) {
+                    found_index = j;
+                    break;
+                }
+            }
+
+            write(pipe_fds[i][1], &found_index, sizeof(int));
+            close(pipe_fds[i][1]);
+            exit(0);
+        }
+        else {
+            close(pipe_fds[i][1]);
         }
     }
+
+    int available_index = -1;
+    for (int i = 0; i < num_processes; i++) {
+        int child_result;
+        read(pipe_fds[i][0], &child_result, sizeof(int));
+        
+        if (child_result != -1 && available_index == -1) {
+            available_index = child_result;
+        }
+        
+        close(pipe_fds[i][0]);
+        waitpid(pids[i], NULL, 0);
+    }
+
+    if (available_index != -1) {
+        strncpy(documents[available_index].title, task.title, sizeof(documents[available_index].title));
+        strncpy(documents[available_index].authors, task.authors, sizeof(documents[available_index].authors));
+        documents[available_index].year = task.year;
+        strncpy(documents[available_index].path, task.path, sizeof(documents[available_index].path));
+        documents[available_index].valid = 1;
+        available_indexs[available_index] = 0;
+        return available_index + 1;
+    }
+
     return 0;
 }
