@@ -41,6 +41,14 @@ int main(int argc, char* argv[]) {
         int read_bytes = read(server_fifo, &task, sizeof(Task));
         if (read_bytes > 0) {
             if (task.type == 'a' && total_documents>atoi(argv[2])-1) {
+                if (!is_valid_document(argv[1], task.path)) {
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        write(client_fifo, "Error: Invalid document\n", 24);
+                        close(client_fifo);
+                    }
+                    continue;
+                }
                 int try_id;
                 if ((try_id = try_insert(task, documents, available_indexs, cache_size))!=0) {
                     printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", try_id, task.title, task.authors, task.year, task.path);
