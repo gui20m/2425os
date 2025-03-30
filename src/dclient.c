@@ -13,8 +13,11 @@
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         char* buf = "Usage:\n"
-                    "  index file: ./dclient -a \"title\" \"authors\" \"year\" \"path\"\n"
-                    "  consult meta-data: ./dclient -c \"id\"\n";
+                    "  index file: ./dclient -a <\"title\"> <\"authors\"> <\"year\"> <\"path\">\n"
+                    "  consult meta-data: ./dclient -c <key>\n"
+                    "  delete meta-data: ./dclient -d <key>\n"
+                    "  how many words exists in file: ./dclient -l <key> <\"keyword\">\n"
+                    "  files with keyword: ./dclient -s <\"keyword\">\n";
         write(STDOUT_FILENO, buf, strlen(buf));
         return 1;
     }
