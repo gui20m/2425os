@@ -152,7 +152,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        char response[128];
+        char response[1000000];
         int read_bytes = read(client_fifo, response, sizeof(response));
         if (read_bytes > 0) {
             write(STDOUT_FILENO, response, read_bytes);
@@ -176,7 +176,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        char response[128];
+        char response[1000000];
         int read_bytes = read(client_fifo, response, sizeof(response));
         if (read_bytes > 0) {
             write(STDOUT_FILENO, response, read_bytes);

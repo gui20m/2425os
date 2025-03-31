@@ -67,54 +67,53 @@ int count_line_w_keyword(char* path, char* keyword) {
 }
 
 char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route) {
-  static char response[4096];
-  response[0] = '\0';
-  int first_match = 1;
+    static char response[1000000];
+    response[0] = '\0';
+    int first_match = 1;
 
-  for (int i = 0; i < *total_documents; i++) {
-      Document doc = documents[i];
-      if (!doc.valid) continue;
-      char full_path[1024];
-      snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
-      
-      int fd = open(full_path, O_RDONLY);
-      if (fd == -1) continue;
+    for (int i = 0; i < *total_documents; i++) {
+        Document doc = documents[i];
+        if (!doc.valid) continue;
+        char full_path[128];
+        snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
+        
+        int fd = open(full_path, O_RDONLY);
+        if (fd == -1) continue;
 
-      char buffer[4096];
-      ssize_t bytes_read;
-      int count = 0;
+        char buffer[2048];
+        ssize_t bytes_read;
+        int count = 0;
 
-      while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-          char *start = buffer;
-          char *end = buffer + bytes_read;
+        while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+            char *start = buffer;
+            char *end = buffer + bytes_read;
 
-          while (start < end) {
-              char *nl = memchr(start, '\n', end - start);
-              size_t line_len = nl ? (nl - start) : (end - start);
+            while (start < end) {
+                char *nl = memchr(start, '\n', end - start);
+                size_t line_len = nl ? (nl - start) : (end - start);
+                if (memmem(start, line_len, keyword, strlen(keyword))) {
+                    count++;
+                }
 
-              if (memmem(start, line_len, keyword, strlen(keyword))) {
-                  count++;
-              }
+                if (nl && !count) {
+                    start = nl + 1;
+                } else {
+                    break;
+                }
+            }
+        }
 
-              if (nl) {
-                  start = nl + 1;
-              } else {
-                  break;
-              }
-          }
-      }
+        close(fd);
 
-      close(fd);
-
-      if (count > 0) {
-          if (!first_match) strcat(response, ",");
-          char entry[256];
-          snprintf(entry, sizeof(entry), "%d", i + 1);
-          strcat(response, entry);
-          first_match = 0;
-      }
-  }
-  return response;
+        if (count > 0) {
+            if (!first_match) strcat(response, ",");
+            char entry[32];
+            snprintf(entry, sizeof(entry), "%d", i + 1);
+            strcat(response, entry);
+            first_match = 0;
+        }
+    }
+    return response;
 }
 
 void save_metadata(const char* filename, Document docs[], int total) {
@@ -162,7 +161,7 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
 }
 
 int try_insert(Task task, Document documents[], int available_indexs[], int cache_size) {
-    int num_processes = 10;
+    int num_processes = cache_size%10;
     int pipe_fds[num_processes][2];
     pid_t pids[num_processes];
     int chunk_size = cache_size / num_processes;

@@ -159,7 +159,7 @@ int main(int argc, char* argv[]) {
                     printf("[server-log] looking for documents with keyword \"%s\"\n", task.keyword);
                     int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
-                        char response[128];
+                        char response[1000000];
                         snprintf(response, sizeof(response), "[%s", output);
                         strcat(response, "]\n");
                         write(client_fifo, response, strlen(response));
@@ -197,7 +197,7 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     
-                    char final_output[4096] = "[";
+                    char final_output[1000000] = "[";
                     int first_result = 1;
                     
                     for (int i = 0; i < task.nr_processes; i++) {
