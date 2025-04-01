@@ -74,6 +74,7 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
     for (int i = 0; i < *total_documents; i++) {
         Document doc = documents[i];
         if (!doc.valid) continue;
+        doc.used++;
         char full_path[128];
         snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
         
@@ -116,27 +117,33 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
     return response;
 }
 
-void save_metadata(const char* filename, Document docs[], int total) {
-    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+void save_metadata(char* filename, Document *documents, int *total_documents, int *valid_index) {
+    int fd = open(filename, O_RDWR | O_CREAT, 0666);
     if (fd == -1) {
-        perror("Error opening metadata file");
+        perror("Error opening file");
         return;
     }
 
-    if (write(fd, &total, sizeof(int)) == -1) {
-        perror("Error writing total");
+    off_t write_pos = sizeof(int) + ((valid_index != NULL) ? (*valid_index * sizeof(Document)) : (*total_documents * sizeof(Document)));
+    lseek(fd, write_pos, SEEK_SET);
+
+    if (write(fd, documents, sizeof(Document)) == -1) {
+        perror("Error writing document");
+        close(fd);
+        return;
     }
 
-    for (int i = 0; i < total; i++) {
-        if (write(fd, &docs[i], sizeof(Document)) == -1) {
-            perror("Error writing document");
-        }
+    if (valid_index == NULL) {
+        int updated_total = *total_documents + 1;
+        lseek(fd, 0, SEEK_SET);
+        write(fd, &updated_total, sizeof(int));
     }
 
     close(fd);
 }
 
-int load_metadata(const char* filename, Document docs[], int max_size, int *loaded) {
+
+int load_metadata(char* filename, Document docs[], int max_size, int *loaded, int* total_docs) {
     int fd = open(filename, O_RDONLY);
     if (fd == -1) return -1;
 
@@ -145,9 +152,10 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
         close(fd);
         return -1;
     }
-
+    
+    *total_docs += file_total;
     *loaded = (file_total >= max_size) ? max_size : file_total;
-    if (file_total > *loaded) printf("[server-log] cache was truncated for the first %d entries..\n", *loaded);
+    if (file_total > *loaded) printf("[server-log] cache was truncated for the first entries [%d/%d]\n", *loaded, file_total);
 
     for (int i = 0; i < *loaded; i++) {
         if (read(fd, &docs[i], sizeof(Document)) != sizeof(Document)) {
@@ -160,8 +168,37 @@ int load_metadata(const char* filename, Document docs[], int max_size, int *load
     return 0;
 }
 
-int try_insert(Task task, Document documents[], int available_indexs[], int cache_size) {
-    int num_processes = cache_size%10;
+void update_metadata(char* filename, Document *documents, int document_id) {
+    int fd = open(filename, O_RDWR);
+    if (fd == -1) {
+        perror("Error opening file for update");
+        return;
+    }
+
+    off_t update_pos = sizeof(int) + ((document_id) * sizeof(Document));
+    
+    lseek(fd, update_pos, SEEK_SET);
+
+    Document doc;
+    if (read(fd, &doc, sizeof(Document)) != sizeof(Document)) {
+        perror("Error reading document for update");
+        close(fd);
+        return;
+    }
+
+    doc.valid = 0;
+
+    lseek(fd, update_pos-sizeof(Document), SEEK_SET);
+
+    if (write(fd, &doc, sizeof(Document)) != sizeof(Document)) {
+        perror("Error writing updated document");
+    }
+
+    close(fd);
+}
+
+int try_insert(Task task, Document documents[], int available_indexs[], int cache_size, int* total_documents) {
+    int num_processes = cache_size/100 > 0 ? cache_size/100 : 1;
     int pipe_fds[num_processes][2];
     pid_t pids[num_processes];
     int chunk_size = cache_size / num_processes;
@@ -177,7 +214,7 @@ int try_insert(Task task, Document documents[], int available_indexs[], int cach
             int found_index = -1;
 
             for (int j = start; j < end; j++) {
-                if (available_indexs[j] == 1) {
+                if (available_indexs[j] == 1 || documents[j].valid==0) {
                     found_index = j;
                     break;
                 }
@@ -206,14 +243,132 @@ int try_insert(Task task, Document documents[], int available_indexs[], int cach
     }
 
     if (available_index != -1) {
+        documents[available_index].id = ++(*total_documents);
         strncpy(documents[available_index].title, task.title, sizeof(documents[available_index].title));
         strncpy(documents[available_index].authors, task.authors, sizeof(documents[available_index].authors));
         documents[available_index].year = task.year;
         strncpy(documents[available_index].path, task.path, sizeof(documents[available_index].path));
         documents[available_index].valid = 1;
         available_indexs[available_index] = 0;
+        save_metadata(META_FILE, &documents[available_index], total_documents, &available_index);
+        *total_documents+=1;
         return available_index + 1;
     }
 
     return 0;
+}
+
+int least_used_frequently(Document documents[], int cache_size) {
+    int num_processes = cache_size/100 > 0 ? cache_size/100 : 1;
+    int segment_size = cache_size / num_processes;
+    int pipes[num_processes][2];
+    pid_t pids[num_processes];
+
+    for (int i = 0; i < num_processes; i++) {
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe failed");
+            return -1;
+        }
+    }
+
+    for (int i = 0; i < num_processes; i++) {
+        pids[i] = fork();
+        if (pids[i] == 0) {
+            close(pipes[i][0]);
+            
+            int start = i * segment_size;
+            int end = (i == num_processes - 1) ? cache_size : start + segment_size;
+            
+            int min_used = documents[start].used;
+            int min_index = start;
+            
+            for (int j = start + 1; j < end; j++) {
+                if (documents[j].used < min_used) {
+                    min_used = documents[j].used;
+                    min_index = j;
+                }
+            }
+            
+            write(pipes[i][1], &min_index, sizeof(int));
+            write(pipes[i][1], &min_used, sizeof(int));
+            
+            close(pipes[i][1]);
+            exit(0);
+        } else {
+            close(pipes[i][1]);
+        }
+    }
+
+    int least_used_index = 0;
+    int least_used_value = documents[0].used;
+    
+    for (int i = 0; i < num_processes; i++) {
+        int current_index, current_used;
+        
+        read(pipes[i][0], &current_index, sizeof(int));
+        read(pipes[i][0], &current_used, sizeof(int));
+        
+        if (current_used < least_used_value) {
+            least_used_index = current_index;
+            least_used_value = current_used;
+        }
+        
+        close(pipes[i][0]);
+        waitpid(pids[i], NULL, 0);
+    }
+
+    return least_used_index;
+}
+
+int cache_files(Task task, Document* documents, int* total_documents, int cache_size) {
+    int index = least_used_frequently(documents, cache_size);
+    if (index == -1) {
+        return -1;
+    }
+
+    if (documents[index].valid) {
+        save_metadata(META_FILE, &documents[index], total_documents, &index);
+    }
+
+    documents[index].id = *total_documents + 1;
+    strncpy(documents[index].title, task.title, sizeof(documents[index].title));
+    strncpy(documents[index].authors, task.authors, sizeof(documents[index].authors));
+    documents[index].year = task.year;
+    strncpy(documents[index].path, task.path, sizeof(documents[index].path));
+    documents[index].valid = 1;
+    documents[index].used = 0;
+    save_metadata(META_FILE, &documents[index], total_documents, 0);
+    (*total_documents)++;
+    return *total_documents;
+}
+
+int load_from_metadata(char* filename, Document documents[], int id, int cache_size, int *total_docs) {
+    printf("usei\n");
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
+        perror("Error opening file");
+        return -1;
+    }
+
+    off_t position = sizeof(int) + (id * sizeof(Document));
+    
+    if (lseek(fd, position-sizeof(Document), SEEK_SET) == -1) {
+        perror("Error seeking file position");
+        close(fd);
+        return -1;
+    }
+
+    int index = least_used_frequently(documents, cache_size);
+
+    if (documents[index].valid) {
+        save_metadata(filename, &documents[index], total_docs, 0);
+    }
+
+    if (read(fd, &documents[index], sizeof(Document)) != sizeof(Document)) {
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return index;
 }

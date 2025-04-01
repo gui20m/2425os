@@ -27,11 +27,13 @@ typedef struct {
 } Task;
 
 typedef struct {
+    int id;
     char title[200];
     char authors[200];
     int year;
     char path[64];
     int valid;
+    int used;
 } Document;
 
 void createFIFO(char* fifo_name);
@@ -44,10 +46,18 @@ int count_line_w_keyword(char* path, char* keyword);
 
 char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route);
 
-void save_metadata(const char* filename, Document docs[], int total);
+void save_metadata(char* filename, Document* documents, int *total_documents, int *valid_index);
 
-int load_metadata(const char* filename, Document docs[], int max_size, int *loaded);
+int load_metadata(char* filename, Document docs[], int max_size, int *loaded, int* total_docs);
 
-int try_insert(Task task, Document documents[], int available_indexs[], int cache_size);
+void update_metadata(char* filename, Document *documents, int document_id);
+
+int try_insert(Task task, Document documents[], int available_indexs[], int cache_size, int* total_documents);
+
+int cache_files(Task task, Document* documents, int* total_documents, int cache_size);
+
+int load_from_metadata(char* filename, Document documents[], int id, int cache_size, int* total_docs);
+
+int least_used_frequently(Document documents[], int cache_size);
 
 #endif

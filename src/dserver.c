@@ -18,12 +18,12 @@ int main(int argc, char* argv[]) {
     int cache_size = atoi(argv[2]);
 
     Document documents[cache_size];
-    int total_documents = 0;
+    int total_documents = 0, loaded=0;
 
-    if (load_metadata(META_FILE, documents, cache_size, &total_documents) == 0) {
-        cache_size = total_documents;
+    if (load_metadata(META_FILE, documents, cache_size, &loaded, &total_documents) == 0) {
+        cache_size = loaded;
     }
-    if (total_documents<=cache_size) printf("[server-log] loaded %d from disk..\n", total_documents);
+    if (loaded<=cache_size) printf("[server-log] loaded %d from disk..\n", loaded);
 
     int available_indexs[cache_size];
     for (int i=0; i<cache_size; i++) available_indexs[i] =0;
@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
                     continue;
                 }
                 int try_id;
-                if ((try_id = try_insert(task, documents, available_indexs, cache_size))!=0) {
+                if ((try_id = try_insert(task, documents, available_indexs, cache_size, &total_documents))!=0) {
                     printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", try_id, task.title, task.authors, task.year, task.path);
                     int client_fifo = open(task.client_fifo, O_WRONLY);
                     if (client_fifo != -1) {
@@ -61,10 +61,22 @@ int main(int argc, char* argv[]) {
                     }
                     continue;
                 }
-                printf("[server-log] cache is full, cant index more files\n");
+                int after_cached;
+                if ((after_cached = cache_files(task, documents, &total_documents, cache_size)) !=0){
+                    printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", after_cached, task.title, task.authors, task.year, task.path);
+                    int client_fifo = open(task.client_fifo, O_WRONLY);
+                    if (client_fifo != -1) {
+                        char response[128];
+                        snprintf(response, sizeof(response), "Document %d indexed\n", after_cached);
+                        write(client_fifo, response, sizeof(response));
+                        close(client_fifo);
+                    }
+                    continue;
+                }
+                printf("[server-log] couldnt index file\n");
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
-                    write(client_fifo, "Error: Cache full\n", 19);
+                    write(client_fifo, "Error: Indexing file\n", 21);
                     close(client_fifo);
                 }
                 continue;
@@ -78,11 +90,13 @@ int main(int argc, char* argv[]) {
                     }
                     continue;
                 }
+                documents[total_documents].id = total_documents+1;
                 strncpy(documents[total_documents].title, task.title, sizeof(documents[total_documents].title));
                 strncpy(documents[total_documents].authors, task.authors, sizeof(documents[total_documents].authors));
                 documents[total_documents].year = task.year;
                 strncpy(documents[total_documents].path, task.path, sizeof(documents[total_documents].path));
                 documents[total_documents].valid=1;
+                save_metadata(META_FILE, &documents[total_documents], &total_documents,0);
                 total_documents++;
                 printf("[server-log] document%d: title: %s, author: %s, year: %d, path: %s\n", total_documents, task.title, task.authors, task.year, task.path);
 
@@ -99,22 +113,41 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[512];
-                    if (task.id > 0 && task.id <= total_documents && documents[task.id-1].valid) {
-                        Document doc = documents[task.id - 1];
+                    int found = 0;
+                    int index = -1;
+
+                    for (int i = 0; i < cache_size; i++) {
+                        if (documents[i].id == task.id && documents[i].valid) {
+                            index = i;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!found && task.id<=total_documents) {
+                        index = load_from_metadata(META_FILE, documents, task.id, cache_size, &total_documents);
+                        if (index != -1) {
+                            found = 1;
+                        }
+                    }
+                    
+                    if (found) {
+                        documents[index].used++;
                         printf("[server-log] consulting document%d\n", task.id);
                         snprintf(response, sizeof(response),
                             "Title: %s\n"
                             "Authors: %s\n"
                             "Year: %d\n"
-                            "Path: %s\n",
-                            doc.title, doc.authors, doc.year, doc.path);
+                            "Path: %s\n", documents[index].title, documents[index].authors, documents[index].year, documents[index].path);
                     } else {
                         snprintf(response, sizeof(response), "Error: Document %d not found\n", task.id);
                     }
+                    
                     write(client_fifo, response, strlen(response));
                     close(client_fifo);
                 }
-            } 
+            }
+
             if (task.type == 'd') {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
@@ -122,6 +155,7 @@ int main(int argc, char* argv[]) {
                     char* deleted_path = documents[task.id-1].valid ? remove_document(task.id, documents, &total_documents, available_indexs) : NULL;
                     
                     if (deleted_path) {
+                        update_metadata(META_FILE, &documents[total_documents], task.id);
                         printf("[server-log] deleting document%d (%s)\n", task.id, deleted_path);
                         snprintf(response, sizeof(response), "Index entry %d deleted\n", task.id);
                     } else {
@@ -142,6 +176,7 @@ int main(int argc, char* argv[]) {
                         snprintf(full_path, sizeof(full_path), "%s/%s", argv[1], doc.path);
                         
                         int total_lines = count_line_w_keyword(full_path, task.keyword);
+                        doc.used++;
                         printf("[server-log] couting keyword \"%s\" in document%d\n", task.keyword, task.id);
                         snprintf(response, sizeof(response), "%d\n", total_lines);
                     } else {
@@ -249,8 +284,6 @@ int main(int argc, char* argv[]) {
                 }
 
                 printf("[server-log] shutdowning server..\n");
-
-                save_metadata(META_FILE, documents, total_documents);
             
                 close(server_fifo);
                 unlink(SERVER);
