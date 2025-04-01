@@ -343,7 +343,6 @@ int cache_files(Task task, Document* documents, int* total_documents, int cache_
 }
 
 int load_from_metadata(char* filename, Document documents[], int id, int cache_size, int *total_docs) {
-    printf("usei\n");
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
         perror("Error opening file");
