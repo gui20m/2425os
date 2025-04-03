@@ -152,15 +152,33 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    char* deleted_path = documents[task.id-1].valid ? remove_document(task.id, documents, &total_documents, available_indexs) : NULL;
+                    int found = 0;
+                    int index = -1;
+            
+                    for (int i = 0; i < cache_size; i++) {
+                        if (documents[i].id == task.id && documents[i].valid) {
+                            index = i;
+                            found = 1;
+                            break;
+                        }
+                    }
                     
-                    if (deleted_path) {
-                        update_metadata(META_FILE, &documents[total_documents], task.id);
+                    if (!found && task.id <= total_documents) {
+                        index = load_from_metadata(META_FILE, documents, task.id, cache_size, &total_documents);
+                        if (index != -1) {
+                            found = 1;
+                        }
+                    }
+                    
+                    if (found) {
+                        char* deleted_path = remove_document(task.id,index, documents, &total_documents, available_indexs);
+                        update_metadata(META_FILE, task.id);
                         printf("[server-log] deleting document%d (%s)\n", task.id, deleted_path);
                         snprintf(response, sizeof(response), "Index entry %d deleted\n", task.id);
                     } else {
                         snprintf(response, sizeof(response), "Error: Document %d not found\n", task.id);
                     }
+                    
                     write(client_fifo, response, strlen(response));
                     close(client_fifo);
                 }
@@ -170,14 +188,33 @@ int main(int argc, char* argv[]) {
                 int client_fifo = open(task.client_fifo, O_WRONLY);
                 if (client_fifo != -1) {
                     char response[128];
-                    if (task.id > 0 && task.id <= total_documents && documents[task.id-1].valid) {
-                        Document doc = documents[task.id-1];
+                    int found = 0;
+                    int index = -1;
+            
+                    for (int i = 0; i < cache_size; i++) {
+                        if (documents[i].id == task.id && documents[i].valid) {
+                            index = i;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!found && task.id <= total_documents) {
+                        index = load_from_metadata(META_FILE, documents, task.id, cache_size, &total_documents);
+                        if (index != -1) {
+                            found = 1;
+                        }
+                    }
+                    
+                    if (found) {
+                        Document doc = documents[index];
                         char full_path[256];
                         snprintf(full_path, sizeof(full_path), "%s/%s", argv[1], doc.path);
                         
                         int total_lines = count_line_w_keyword(full_path, task.keyword);
-                        doc.used++;
-                        printf("[server-log] couting keyword \"%s\" in document%d\n", task.keyword, task.id);
+                        documents[index].used++;
+                        
+                        printf("[server-log] counting keyword \"%s\" in document%d\n", task.keyword, task.id);
                         snprintf(response, sizeof(response), "%d\n", total_lines);
                     } else {
                         snprintf(response, sizeof(response), "Error: Document %d not found\n", task.id);
@@ -188,89 +225,23 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (task.type=='s'){
-                if (!task.nr_processes){
-                    char *output = match_pattern(documents, &total_documents, task.keyword, argv[1]);
-                    printf("[server-log] looking for documents with keyword \"%s\"\n", task.keyword);
-                    int client_fifo = open(task.client_fifo, O_WRONLY);
-                    if (client_fifo != -1) {
-                        char response[1000000];
-                        snprintf(response, sizeof(response), "[%s", output);
-                        strcat(response, "]\n");
-                        write(client_fifo, response, strlen(response));
-                        close(client_fifo);
-                    }
-                }
-                if (task.nr_processes) {
-                    int pipes[task.nr_processes][2];
-                    pid_t pids[task.nr_processes];
-                    
-                    for (int i = 0; i < task.nr_processes; i++) {
-                        pipe(pipes[i]);
-                        
-                        if ((pids[i] = fork()) == 0) {
-                            close(pipes[i][0]);
-                            int docs_per_process = total_documents / task.nr_processes;
-                            int start = i * docs_per_process;
-                            int end = (i == task.nr_processes - 1) ? total_documents : start + docs_per_process;
-                            int count = end - start;
-                            
-                            char *partial_output = match_pattern(documents + start, &count, task.keyword, argv[1]);
-                            
-                            write(pipes[i][1], &start, sizeof(int));  // Envia o offset
-                            int output_len = strlen(partial_output);
-                            write(pipes[i][1], &output_len, sizeof(int));
-                            
-                            if (output_len > 0) {
-                                write(pipes[i][1], partial_output, output_len + 1);
-                            }
-                            close(pipes[i][1]);
-                            exit(0);
-                        }
-                        else {
-                            close(pipes[i][1]);
-                        }
-                    }
-                    
-                    char final_output[1000000] = "[";
-                    int first_result = 1;
-                    
-                    for (int i = 0; i < task.nr_processes; i++) {
-                        int start, output_len;
-                        read(pipes[i][0], &start, sizeof(int));
-                        read(pipes[i][0], &output_len, sizeof(int));
-                        
-                        if (output_len > 0) {
-                            char buffer[1024];
-                            read(pipes[i][0], buffer, output_len + 1);
-                            
-                            char *token = strtok(buffer, ",");
-                            while (token != NULL) {
-                                if (!first_result) {
-                                    strcat(final_output, ",");
-                                }
-                                
-                                int relative_id = atoi(token);
-                                int absolute_id = start + relative_id;
-                                
-                                char id_str[10];
-                                snprintf(id_str, sizeof(id_str), "%d", absolute_id);
-                                strcat(final_output, id_str);
-                                
-                                first_result = 0;
-                                token = strtok(NULL, ",");
-                            }
-                        }
-                        close(pipes[i][0]);
-                        waitpid(pids[i], NULL, 0);
-                    }
-                    
-                    strcat(final_output, "]\n");
-                    int client_fifo = open(task.client_fifo, O_WRONLY);
-                    if (client_fifo != -1) {
-                        write(client_fifo, final_output, strlen(final_output) + 1);
-                        close(client_fifo);
-                    }
+            if (task.type == 's') {
+                printf("[server-log] looking for documents with keyword \"%s\"\n", task.keyword);
+                char* output;
+                if (!task.nr_processes)
+                    output = match_pattern(documents, &total_documents, task.keyword, argv[1], cache_size, 1);
+
+                if (task.nr_processes) 
+                    output = match_pattern(documents, &total_documents, task.keyword, argv[1], cache_size, task.nr_processes);
+
+                output = remove_duplicates(output);
+
+                char response[1000000];
+                snprintf(response, sizeof(response), "[%s]\n", output);
+                int client_fifo = open(task.client_fifo, O_WRONLY);
+                if (client_fifo != -1) {
+                    write(client_fifo, response, strlen(response) + 1);
+                    close(client_fifo);
                 }
             }
 

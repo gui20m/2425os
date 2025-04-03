@@ -4,15 +4,15 @@ void createFIFO(char* fifo_name) {
     mkfifo(fifo_name, 0666);
 }
 
-char* remove_document(int id, Document docs[], int *total, int available_indexs[]) {
+char* remove_document(int taskid, int id, Document docs[], int *total, int available_indexs[]) {
   static char path[256];
-  if (id < 1 || id > *total) return NULL;
+  if (taskid < 1 || taskid > *total) return NULL;
   
-  strcpy(path, docs[id-1].path);
+  strcpy(path, docs[id].path);
   
-  memset(&docs[id-1], 0, sizeof(Document));
-  docs[id-1].valid = 0;
-  available_indexs[id-1] = 1;
+  memset(&docs[id], 0, sizeof(Document));
+  docs[id].valid = 0;
+  available_indexs[id] = 1;
   
   return path;
 }
@@ -66,54 +66,135 @@ int count_line_w_keyword(char* path, char* keyword) {
   return count;
 }
 
-char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route) {
-    static char response[1000000];
-    response[0] = '\0';
-    int first_match = 1;
+static int count_keyword_in_file(char* path, char* keyword) {
+    int fd = open(path, O_RDONLY);
+    if (fd == -1) return 0;
+    
+    char buffer[2048];
+    ssize_t bytes_read;
+    int count = 0;
 
-    for (int i = 0; i < *total_documents; i++) {
-        Document doc = documents[i];
-        if (!doc.valid) continue;
-        doc.used++;
-        char full_path[128];
-        snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
-        
-        int fd = open(full_path, O_RDONLY);
-        if (fd == -1) continue;
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+        char *start = buffer;
+        char *end = buffer + bytes_read;
 
-        char buffer[2048];
-        ssize_t bytes_read;
-        int count = 0;
-
-        while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-            char *start = buffer;
-            char *end = buffer + bytes_read;
-
-            while (start < end) {
-                char *nl = memchr(start, '\n', end - start);
-                size_t line_len = nl ? (nl - start) : (end - start);
-                if (memmem(start, line_len, keyword, strlen(keyword))) {
-                    count++;
-                }
-
-                if (nl && !count) {
-                    start = nl + 1;
-                } else {
-                    break;
-                }
+        while (start < end) {
+            char *nl = memchr(start, '\n', end - start);
+            size_t line_len = nl ? (nl - start) : (end - start);
+            if (memmem(start, line_len, keyword, strlen(keyword))) {
+                count++;
             }
-        }
-
-        close(fd);
-
-        if (count > 0) {
-            if (!first_match) strcat(response, ",");
-            char entry[32];
-            snprintf(entry, sizeof(entry), "%d", i + 1);
-            strcat(response, entry);
-            first_match = 0;
+            start = nl ? nl + 1 : end;
         }
     }
+    close(fd);
+    return count;
+}
+
+char* match_pattern(Document documents[], int *total_documents, char* keyword, char* route, int cache_size, int num_processes) {
+    static char response[1000000];
+    response[0] = '\0';
+    
+    if (num_processes <= 1) {
+        int first_match = 1;
+        for (int i = 0; i < *total_documents; i++) {
+            Document doc;
+            int index = i;
+            if (i < cache_size) {
+                doc = documents[i];
+            } else {
+                index = load_from_metadata(META_FILE, documents, i+1, cache_size, total_documents);
+                if (index == -1) continue;
+                doc = documents[index];
+            }
+
+            if (!doc.valid) continue;
+            documents[index].used++;
+            
+            char full_path[256];
+            snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
+            
+            int count = count_keyword_in_file(full_path, keyword);
+            
+            if (count > 0) {
+                if (!first_match) strcat(response, ",");
+                char entry[32];
+                snprintf(entry, sizeof(entry), "%d", doc.id);
+                strcat(response, entry);
+                first_match = 0;
+            }
+        }
+        return response;
+    }
+
+    int pipes[num_processes][2];
+    pid_t pids[num_processes];
+    int docs_per_process = (*total_documents + num_processes - 1) / num_processes;
+
+    for (int i = 0; i < num_processes; i++) {
+        pipe(pipes[i]);
+        pids[i] = fork();
+        
+        if (pids[i] == 0) {
+            close(pipes[i][0]);
+            
+            char partial_response[1000000] = "";
+            int first = 1;
+            int start = i * docs_per_process;
+            int end = (start + docs_per_process > *total_documents) ? *total_documents : start + docs_per_process;
+            
+            for (int j = start; j < end; j++) {
+                Document doc;
+                int index = j;
+                if (j < cache_size) {
+                    doc = documents[j];
+                } else {
+                    index = load_from_metadata(META_FILE, documents, j+1, cache_size, total_documents);
+                    if (index == -1) continue;
+                    doc = documents[index];
+                }
+
+                if (!doc.valid) continue;
+                documents[index].used++;
+                
+                char full_path[256];
+                snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
+                
+                int count = count_keyword_in_file(full_path, keyword);
+                
+                if (count > 0) {
+                    if (!first) strcat(partial_response, ",");
+                    char entry[32];
+                    snprintf(entry, sizeof(entry), "%d", doc.id);
+                    strcat(partial_response, entry);
+                    first = 0;
+                }
+            }
+            
+            write(pipes[i][1], partial_response, strlen(partial_response) + 1);
+            close(pipes[i][1]);
+            exit(0);
+        } else {
+            close(pipes[i][1]);
+        }
+    }
+
+    int first = 1;
+    for (int i = 0; i < num_processes; i++) {
+        char buffer[1000000];
+        ssize_t bytes_read = read(pipes[i][0], buffer, sizeof(buffer));
+        close(pipes[i][0]);
+        waitpid(pids[i], NULL, 0);
+        
+        if (bytes_read > 0) {
+            if (!first && buffer[0] != '\0') {
+                strcat(response, ",");
+            }
+            strcat(response, buffer);
+            first = 0;
+        }
+    }
+
     return response;
 }
 
@@ -168,30 +249,38 @@ int load_metadata(char* filename, Document docs[], int max_size, int *loaded, in
     return 0;
 }
 
-void update_metadata(char* filename, Document *documents, int document_id) {
+void update_metadata(char* filename, int document_id) {
     int fd = open(filename, O_RDWR);
     if (fd == -1) {
-        perror("Error opening file for update");
+        perror("Error opening metadata file for update");
         return;
     }
 
-    off_t update_pos = sizeof(int) + ((document_id) * sizeof(Document));
+    off_t update_pos = sizeof(int) + ((document_id - 1) * sizeof(Document));
     
-    lseek(fd, update_pos, SEEK_SET);
+    if (lseek(fd, update_pos, SEEK_SET) == -1) {
+        perror("Error seeking in metadata file");
+        close(fd);
+        return;
+    }
 
     Document doc;
     if (read(fd, &doc, sizeof(Document)) != sizeof(Document)) {
-        perror("Error reading document for update");
+        perror("Error reading document from metadata");
         close(fd);
         return;
     }
 
     doc.valid = 0;
 
-    lseek(fd, update_pos-sizeof(Document), SEEK_SET);
+    if (lseek(fd, update_pos, SEEK_SET) == -1) {
+        perror("Error seeking for write");
+        close(fd);
+        return;
+    }
 
     if (write(fd, &doc, sizeof(Document)) != sizeof(Document)) {
-        perror("Error writing updated document");
+        perror("Error writing updated document to metadata");
     }
 
     close(fd);
@@ -343,6 +432,7 @@ int cache_files(Task task, Document* documents, int* total_documents, int cache_
 }
 
 int load_from_metadata(char* filename, Document documents[], int id, int cache_size, int *total_docs) {
+    printf("usei..\n");
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
         perror("Error opening file");
@@ -359,15 +449,78 @@ int load_from_metadata(char* filename, Document documents[], int id, int cache_s
 
     int index = least_used_frequently(documents, cache_size);
 
-    if (documents[index].valid) {
-        save_metadata(filename, &documents[index], total_docs, 0);
-    }
-
     if (read(fd, &documents[index], sizeof(Document)) != sizeof(Document)) {
         close(fd);
         return -1;
     }
 
+    if (!documents[index].valid) return -1;
+
     close(fd);
     return index;
+}
+
+static int compare_ints(const void* a, const void* b) {
+    int arg1 = *(const int*)a;
+    int arg2 = *(const int*)b;
+    return (arg1 > arg2) - (arg1 < arg2);
+}
+
+char* remove_duplicates(char* input) {
+    if (input == NULL || strlen(input) == 0) {
+        char* result = malloc(1);
+        result[0] = '\0';
+        return result;
+    }
+
+    int count = 1;
+    for (const char* p = input; *p; p++) {
+        if (*p == ',') count++;
+    }
+
+    int* numbers = malloc(count * sizeof(int));
+    int num_count = 0;
+    
+    const char* start = input;
+    const char* end;
+    char buffer[32];
+    
+    while (*start) {
+        end = strchr(start, ',');
+        if (end == NULL) end = start + strlen(start);
+        
+        int len = end - start;
+        if (len >= sizeof(buffer)) len = sizeof(buffer) - 1;
+        
+        strncpy(buffer, start, len);
+        buffer[len] = '\0';
+        
+        numbers[num_count++] = atoi(buffer);
+        
+        if (*end == '\0') break;
+        start = end + 1;
+    }
+
+    qsort(numbers, num_count, sizeof(int), compare_ints);
+
+    int unique_count = 0;
+    for (int i = 0; i < num_count; i++) {
+        if (i == 0 || numbers[i] != numbers[i - 1]) {
+            numbers[unique_count++] = numbers[i];
+        }
+    }
+
+    char* result = malloc(strlen(input) + 1);
+    result[0] = '\0';
+    
+    for (int i = 0; i < unique_count; i++) {
+        char num_str[32];
+        snprintf(num_str, sizeof(num_str), "%d", numbers[i]);
+        
+        if (i > 0) strcat(result, ",");
+        strcat(result, num_str);
+    }
+    
+    free(numbers);
+    return result;
 }
