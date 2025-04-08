@@ -109,7 +109,11 @@ char* match_pattern(Document documents[], int *total_documents, char* keyword, c
             }
 
             if (!doc.valid) continue;
-            documents[index].used++;
+            time_t now = time(NULL);
+            double hours_since_last_access = difftime(now, documents[index].last_access) / 3600.0;
+            documents[index].used *= exp(-hours_since_last_access / 24.0);
+            documents[index].used += 1;
+            documents[index].last_access = now;
             
             char full_path[256];
             snprintf(full_path, sizeof(full_path), "%s/%s", route, doc.path);
@@ -352,6 +356,7 @@ int least_used_frequently(Document documents[], int cache_size) {
     int segment_size = cache_size / num_processes;
     int pipes[num_processes][2];
     pid_t pids[num_processes];
+    time_t now = time(NULL);
 
     for (int i = 0; i < num_processes; i++) {
         if (pipe(pipes[i]) == -1) {
@@ -368,18 +373,24 @@ int least_used_frequently(Document documents[], int cache_size) {
             int start = i * segment_size;
             int end = (i == num_processes - 1) ? cache_size : start + segment_size;
             
-            int min_used = documents[start].used;
+            double min_decayed_used = -1;
             int min_index = start;
             
-            for (int j = start + 1; j < end; j++) {
-                if (documents[j].used < min_used) {
-                    min_used = documents[j].used;
-                    min_index = j;
+            for (int j = start; j < end; j++) {
+                if (documents[j].valid) {
+                    double hours_since_last = difftime(now, documents[j].last_access) / 3600.0;
+                    // Aplicar decaimento exponencial (meia-vida de 24 horas) no caso de haver acessos irregulares
+                    double decayed_used = documents[j].used * exp(-hours_since_last / 24.0);
+                    
+                    if (min_decayed_used == -1 || decayed_used < min_decayed_used) {
+                        min_decayed_used = decayed_used;
+                        min_index = j;
+                    }
                 }
             }
             
             write(pipes[i][1], &min_index, sizeof(int));
-            write(pipes[i][1], &min_used, sizeof(int));
+            write(pipes[i][1], &min_decayed_used, sizeof(double));
             
             close(pipes[i][1]);
             exit(0);
@@ -389,17 +400,18 @@ int least_used_frequently(Document documents[], int cache_size) {
     }
 
     int least_used_index = 0;
-    int least_used_value = documents[0].used;
+    double least_decayed_value = -1;
     
     for (int i = 0; i < num_processes; i++) {
-        int current_index, current_used;
+        int current_index;
+        double current_decayed;
         
         read(pipes[i][0], &current_index, sizeof(int));
-        read(pipes[i][0], &current_used, sizeof(int));
+        read(pipes[i][0], &current_decayed, sizeof(double));
         
-        if (current_used < least_used_value) {
+        if (least_decayed_value == -1 || current_decayed < least_decayed_value) {
+            least_decayed_value = current_decayed;
             least_used_index = current_index;
-            least_used_value = current_used;
         }
         
         close(pipes[i][0]);
@@ -432,7 +444,6 @@ int cache_files(Task task, Document* documents, int* total_documents, int cache_
 }
 
 int load_from_metadata(char* filename, Document documents[], int id, int cache_size, int *total_docs) {
-    printf("usei..\n");
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
         perror("Error opening file");

@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <math.h>
+#include <time.h>
 #include "utils.h"
 
 int main(int argc, char* argv[]) {
@@ -40,6 +42,7 @@ int main(int argc, char* argv[]) {
         Task task;
         int read_bytes = read(server_fifo, &task, sizeof(Task));
         if (read_bytes > 0) {
+            time_t now = time(NULL);
             if (task.type == 'a' && total_documents>atoi(argv[2])-1) {
                 if (!is_valid_document(argv[1], task.path)) {
                     int client_fifo = open(task.client_fifo, O_WRONLY);
@@ -132,7 +135,11 @@ int main(int argc, char* argv[]) {
                     }
                     
                     if (found) {
-                        documents[index].used++;
+                        double hours_since_last_access = difftime(now, documents[index].last_access) / 3600.0;
+                        documents[index].used *= exp(-hours_since_last_access / 24.0);
+                        documents[index].used += 1;
+                        documents[index].last_access = now;
+
                         printf("[server-log] consulting document%d\n", task.id);
                         snprintf(response, sizeof(response),
                             "Title: %s\n"
@@ -212,7 +219,10 @@ int main(int argc, char* argv[]) {
                         snprintf(full_path, sizeof(full_path), "%s/%s", argv[1], doc.path);
                         
                         int total_lines = count_line_w_keyword(full_path, task.keyword);
-                        documents[index].used++;
+                        double hours_since_last_access = difftime(now, documents[index].last_access) / 3600.0;
+                        documents[index].used *= exp(-hours_since_last_access / 24.0);
+                        documents[index].used += 1;
+                        documents[index].last_access = now;
                         
                         printf("[server-log] counting keyword \"%s\" in document%d\n", task.keyword, task.id);
                         snprintf(response, sizeof(response), "%d\n", total_lines);

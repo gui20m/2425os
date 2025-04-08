@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <math.h>
+#include <time.h>
 
 #ifndef UTILS_H
 #define UTILS_H
@@ -34,6 +36,7 @@ typedef struct {
     char path[64];
     int valid; // flag para saber se um documento foi apagado
     int used; // numero de acessos ao documento
+    time_t last_access; // timestamp da ultima vez que o ficheiro foi acedido
 } Document;
 
 void createFIFO(char* fifo_name);

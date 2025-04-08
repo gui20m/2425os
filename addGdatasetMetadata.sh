@@ -23,6 +23,8 @@ COUNT=0
 
 ./bin/dserver tmp/Gdataset 1645 &
 
+sleep 1
+
 # Read the input file line by line, using tab ('\t') as a delimiter
 # The first line (header) is skipped
 while IFS=$'\t' read -r filename title year authors; do
